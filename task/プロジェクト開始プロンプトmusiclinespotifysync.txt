@@ -1,0 +1,58 @@
+# プロジェクト: musicline-spotify-sync
+
+## 目的
+NHK-FM「ミュージックライン」の過去回の選曲(曲名・アーティスト)を取得し、
+自分のSpotifyに「新着プレイリスト」として自動作成・追記するNode.jsツールを作る。個人利用のみ。
+
+## 技術方針
+- Node.js 20以上、ESM、組み込みfetch。依存は最小(dotenv程度)
+- 設定は .env (SPOTIFY_CLIENT_ID, SPOTIFY_REDIRECT_URI)。.env とトークン保存ファイルは必ず .gitignore
+- 最初に git init と .gitignore を作る
+
+## 確認済みのNHK側の事実(私がブラウザで検証済み。認証不要のGET)
+- 一覧API: https://api.nhk.jp/r8/l/radioepisode/pl/series-rep-Z9WGYY3GP5.json?offset=0
+  - レスポンス: { result: [最大10件], nextUrl, resultUrl, count: 1653 }
+  - nextUrl を辿ってページング(offset=10,20,...)
+- 各エピソードの主なフィールド:
+  - id, name(ゲスト名), releasedEvent.startDate(初回放送日)
+  - detailedRecentEvent.misc.musicList[] = { name, duration("PT4M54S"形式), byArtist:[{name}] }
+- 単体取得: https://api.nhk.jp/r8/t/radioepisode/re/{id}.json
+- 注意点:
+  - 曲名・アーティスト名に全角英数字が混在(例: "ｔｏｍａｔｏ")。検索前に NFKC 正規化すること
+  - 未放送回は musicList が空配列。スキップする
+  - 「NEW POINT / 西岡大貴」はほぼ全回に出る番組テーマ曲。デフォルトで除外し、設定で切り替え可能にする
+  - detailedComingEvent は再放送の情報で重複するので使わない
+  - 古い回で musicList の構造や有無が違う可能性がある。想定外の形でも落ちず、警告ログを出して続行
+- NHKへの配慮: リクエスト間に1秒以上のsleep、取得結果は data/episodes.json にキャッシュ、同じページを再取得しない
+
+## Spotify側の注意(重要)
+- 認証は Authorization Code + PKCE(Client Secretは使わない)。ローカルの一時HTTPサーバーで
+  http://127.0.0.1:8888/callback を受ける(localhostではなく127.0.0.1)
+- スコープ: playlist-modify-private playlist-modify-public
+- 2024年11月と2026年2月にWeb APIの仕様変更があった。実装前に公式ドキュメント
+  (特に February 2026 migration guide)を確認し、最新のエンドポイントを使うこと。私が把握している範囲:
+  - /playlists/{id}/tracks は /playlists/{id}/items にリネーム済み
+  - 検索のlimit上限が小さくなっている(10程度)
+  - audio-features / recommendations / related-artists は使えない(使わない)
+- 検索: track と artist を指定したクエリで検索。候補が複数ならアーティスト名の一致と、
+  再生時間(NHKのduration)との差が±5秒以内かでスコアリングして最良の1件を選ぶ。
+  ヒットしなければartist抜きで再検索。それでもダメなら out/unmatched.csv に記録
+- 429 は Retry-After ヘッダーを尊重。曲追加は100件ずつ
+- 同一曲(正規化後の曲名+アーティスト)は1回だけ追加
+
+## CLI
+- `node src/index.js fetch`  : NHKからエピソードを取得して data/episodes.json に保存
+- `node src/index.js sync`   : マッチングしてSpotifyプレイリストに追加
+  - オプション: --dry-run(Spotifyに書き込まず結果だけ表示), --since YYYY-MM-DD, --limit N,
+    --include-theme(NEW POINTを含める)
+- 処理済みエピソードIDとプレイリストIDを data/state.json に保存し、再実行時は新着回だけ追記する(増分更新)
+
+## 進め方(各フェーズ終了時に結果を報告して止まること)
+- Phase 0: プロジェクト雛形、.gitignore、README。NHKの一覧APIを数ページ叩き、
+  「全エピソード数・musicListが空でない数・古い回の構造差異」を集計して私に報告
+- Phase 1: fetch実装(キャッシュ・sleep付き)と、正規化・duration変換のユニットテスト
+- Phase 2: Spotify認証(PKCE)。ログインして「自分のユーザー情報が取れた」ところまで確認
+- Phase 3: 検索マッチングを --dry-run で直近20回分に対して実行し、マッチ率とunmatchedを報告
+- Phase 4: 実際にプレイリスト作成(最初は --limit 20)。問題なければ全期間へ拡大
+
+まずPhase 0だけ実行して報告してください。

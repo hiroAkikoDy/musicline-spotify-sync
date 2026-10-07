@@ -1,0 +1,12 @@
+{
+  "name": "musicline-spotify-sync",
+  "version": "0.1.0",
+  "description": "NHK-FM ミュージックライン の選曲を Spotify プレイリストへ同期する個人用ツール",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "survey": "node scripts/survey.js",
+    "test": "node --test"
+  }
+}

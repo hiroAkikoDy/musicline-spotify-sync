@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+data/token.json
+data/*token*
+node_modules/
+out/
+*.log
