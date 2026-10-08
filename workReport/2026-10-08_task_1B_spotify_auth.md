@@ -96,22 +96,52 @@ generateCodeVerifier(64) length: 64 / charset ok: true
   display_name/id/product のみ。トークン保存はファイル経由で内容を表示しない
 - authorize URL には code_challenge は含まれるが verifier / トークンは含まれない
 
-**実機ログイン（`node scripts/auth_check.js`）: 未実施 — ユーザー操作待ちでここで停止**
-（タスク指示「実機ログインにユーザー操作が必要なため、その時点で一度止まって依頼すること」に従う。
-2回目実行での「ブラウザが開かず成功」確認と、出力へのトークン混入 grep 確認は、ログイン完了後に
-本レポートへ追記する）
+**実機ログイン1回目（ユーザー実行・2026-10-08）:**
+```
+Spotify認証を開始します...
+ブラウザで認証してください。開かない場合は下のURLを手動で開いてください:
+https://accounts.spotify.com/authorize?...（URL全体は client_id/state/challenge を含むため割愛）
+トークンを data/spotify_token.json に保存しました (.gitignore済み・内容は表示しません)
+--- Spotify ユーザー情報 (GET /me) ---
+display_name: hiro-a-ki
+id: m2oq9rlfzvswahzll80iu4eda
+product: (取得できません - Feb 2026 Dev Mode 変更で product は削除対象フィールド)
+```
+→ ログイン・認可・トークン保存・`GET /me` まで成功。
+**`product` は実際に応答に含まれず**、事前調査の「Feb 2026 Dev Mode 変更で削除対象」どおりだった
+（フォールバック表示が機能。辻褄合わせではなく実態確認済み）。
+
+**実機2回目（私が実行・保存済みトークンを使用）:**
+```
+保存済みトークンを使用します (data/spotify_token.json)
+--- Spotify ユーザー情報 (GET /me) ---
+display_name: hiro-a-ki
+id: m2oq9rlfzvswahzll80iu4eda
+product: (取得できません - Feb 2026 Dev Mode 変更で product は削除対象フィールド)
+```
+→ **ブラウザは開かず**保存トークンで即成功（増分動作を確認）。
+
+**トークン非出力の grep 確認（実トークン値との照合）:**
+```
+access_token (307文字) : 実行出力=含まれない / Work_Report=含まれない
+refresh_token (131文字) : 実行出力=含まれない / Work_Report=含まれない
+```
+検査方法: data/spotify_token.json の実値を読み込み、2回目実行の出力と本レポート全文を
+`String.includes` で照合（値自体は表示しない）。加えて `git check-ignore -v` で
+`.gitignore:5:data/*token*` が `data/spotify_token.json` に一致、worktree の `git status` は
+クリーン（トークンファイルが追跡対象に現れない）ことを確認。
 
 ## 完了条件チェック
 - [x] `node --test` 全件通過（31/31・ログ上記）
-- [ ] 実機: `node scripts/auth_check.js` でログイン→ユーザー情報表示（**ユーザー操作待ちで停止中**）
-- [ ] 2回目実行でブラウザが開かず成功（ログイン後に実施）
-- [ ] 出力・ログ・Work_Report にトークンが含まれないこと（grep 確認はログイン後に実施して記載）
+- [x] 実機: `node scripts/auth_check.js` でログイン→ユーザー情報表示（display_name: hiro-a-ki / id: m2oq9rlfzvswahzll80iu4eda / product: なし=Feb 2026仕様変更どおり）
+- [x] 2回目実行でブラウザが開かず成功（保存トークンで即成功）
+- [x] 出力・ログ・Work_Report にトークンが含まれないこと（実トークン値との grep 照合で確認・結果記載）
 - [x] `git status` で `.env` と `data/spotify_token.json` が追跡対象外
       （`git check-ignore -v`: `.gitignore:1:.env` / `.gitignore:5:data/*token*` → data/spotify_token.json が一致）
 - [x] `node -e` で codeChallengeS256 の既知ベクトル確認（上記・一致）
 - [x] コミット → push → CIグリーン確認（run 37762580940）
 - [x] Work_Report を workReport/ に作成。起点: 起点：計画/Phase2-1B/採用
-- [x] 実機ログインの直前で停止してユーザーに依頼（本レポート提出と同時）
+- [x] 実機ログインの直前で停止してユーザーに依頼 → ユーザー実行後に本追記（2026-10-08）
 
 ## 車検結果（受け入れ基準と照合）
 ├── CIグリーン：○（run 37762580940 success）
@@ -147,14 +177,7 @@ generateCodeVerifier(64) length: 64 / charset ok: true
 起点：計画/Phase2-1B/採用
 
 ## Claudeへの質問・相談事項
-1. **実機ログインのお願い**: worktree `../msync-wt-1b` で以下を実行し、ブラウザでSpotifyログインと
-   認可をお願いします（.env はコピー済み・CLIENT_ID 設定済みを確認）:
-   ```
-   cd C:\Users\Koga Hiroaki\Desktop\hiroaki_\workingFolder\msync-wt-1b
-   node scripts/auth_check.js
-   ```
-   成功すると display_name / id / product が表示されます。**product が表示されない場合、それは
-   Feb 2026 の仕様変更どおりです（本レポート「前提との差異」参照）。** 完了後、私が2回目実行・
-   トークン非出力の grep 確認・レポート追記を行います。
-2. Spotify開発者ダッシュボードにリダイレクトURI `http://127.0.0.1:8888/callback` が
-   登録済みかご確認ください（未登録だと認可画面でエラーになります）。
+1. ~~実機ログインのお願い~~ → **実施済み**（2026-10-08、ユーザーがブラウザで認可・成功）。
+2. ~~リダイレクトURIの登録確認~~ → 認可が成功したため登録済みと確認。
+3. `product` は実際に取得できなかった（事前調査どおり）。Phase 3 のプレイリスト作成には影響なし。
+   ユーザー情報表示は `account_id`/`id`/`display_name` 中心で問題ないと考えるが、ご意見があればください。
