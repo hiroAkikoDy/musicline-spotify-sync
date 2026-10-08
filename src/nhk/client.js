@@ -50,6 +50,8 @@ async function fetchJsonWithRetry(url, fetchImpl, { sleepImpl, logger }) {
       continue;
     }
     if (res.ok) return await res.json();
+    // 5xx と 429、通信エラーのみ再試行。404 など再試行が無意味な4xxは即例外。
+    if (res.status < 500 && res.status !== 429) throw new Error(`HTTP ${res.status} ${url}`);
     if (attempt >= MAX_RETRIES) throw new Error(`HTTP ${res.status} ${url}`);
     let waitMs = backoffMs(attempt + 1);
     if (res.status === 429) {
@@ -65,13 +67,14 @@ async function loadCache(cachePath, logger) {
   try {
     const parsed = JSON.parse(await readFile(cachePath, "utf8"));
     if (parsed && typeof parsed === "object" && parsed.episodes && typeof parsed.episodes === "object") {
-      return { fetchedAt: parsed.fetchedAt ?? null, count: parsed.count ?? 0, episodes: parsed.episodes };
+      // complete が無い旧形式のキャッシュは未完走(false)として扱う
+      return { fetchedAt: parsed.fetchedAt ?? null, count: parsed.count ?? 0, complete: parsed.complete === true, episodes: parsed.episodes };
     }
     logger.warn(`キャッシュの形式が不正のため新規作成します: ${cachePath}`);
   } catch (err) {
     if (err?.code !== "ENOENT") logger.warn(`キャッシュ読み込みに失敗したため新規作成します: ${err?.message ?? err}`);
   }
-  return { fetchedAt: null, count: 0, episodes: {} };
+  return { fetchedAt: null, count: 0, complete: false, episodes: {} };
 }
 
 // 一時ファイル → rename で原子的に書き込む。
@@ -109,9 +112,11 @@ export async function fetchAllEpisodes({
   }
 
   const cache = await loadCache(cachePath, logger);
+  const wasComplete = cache.complete === true; // 前回完走済みか(増分打ち切りはこれがあるときだけ有効)
   let apiCount = cache.count ?? 0;
   let url = `${BASE_URL}?offset=0`;
   let pageCount = 0;
+  let cutOff = false;
 
   while (url) {
     const data = await fetchJsonWithRetry(url, fetchImpl, { sleepImpl, logger });
@@ -131,21 +136,32 @@ export async function fetchAllEpisodes({
     }
 
     pageCount++;
-    cache.fetchedAt = new Date().toISOString();
-    cache.count = apiCount;
-    await saveCache(cachePath, cache);
     logger.log(`[fetch] GET ${url} → ${result.length}件 (保存/更新 ${updated}件, キャッシュ済みスキップ ${skipped}件)`);
 
-    // 「このページの全件が、以前からキャッシュ済みの非空musicListの回」(=何も更新がない)ときだけ打ち切る。
-    // 1件でも新規取得・更新があれば変化が続く可能性があるため次ページへ進む。
-    const allCached = result.length > 0 && updated === 0 && result.every((ep) => hasMusic(cache.episodes[ep.id]));
-    if (allCached) {
+    // 「このページの全件が、以前からキャッシュ済みの非空musicListの回」で、かつ前回完走済み
+    // (complete=true)の場合だけ増分打ち切り。未完走のキャッシュでは打ち切らず最後まで辿る
+    // (全件取得の途中で中断しても、再実行で続きから取得される)。
+    const pageAllCached = result.length > 0 && updated === 0 && result.every((ep) => hasMusic(cache.episodes[ep.id]));
+    if (pageAllCached && wasComplete) {
+      cutOff = true;
       logger.log(`[fetch] ${pageCount}ページ目全体がキャッシュ済みのため取得を打ち切り`);
       break;
     }
+
+    cache.fetchedAt = new Date().toISOString();
+    cache.count = apiCount;
+    cache.complete = false; // 辿り切っていない間は未完了。ここで例外が起きれば false のまま残る
+    await saveCache(cachePath, cache);
+
     url = typeof data?.nextUrl === "string" ? data.nextUrl : null;
     if (url) await sleepImpl(sleepMs);
   }
+
+  // 最後まで辿り切った、または増分打ち切りした場合は完走として complete: true を保存。
+  // 例外で中断した場合はここに来ないため、キャッシュは complete: false のまま残る。
+  cache.complete = true;
+  cache.fetchedAt = new Date().toISOString();
+  await saveCache(cachePath, cache);
 
   return summarize(cache);
 }
