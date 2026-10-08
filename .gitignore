@@ -3,6 +3,8 @@
 !.env.example
 data/token.json
 data/*token*
+data/episodes.json
 node_modules/
 out/
 *.log
+.kilo/
