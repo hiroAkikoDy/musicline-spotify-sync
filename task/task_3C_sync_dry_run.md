@@ -33,6 +33,16 @@
    - `out/unmatched.csv`（`episodeId,airDate,title,artist,bestCandidate,bestScore,reason`）、`out/matched_preview.csv`（目視確認用: NHKの曲名/アーティスト ↔ Spotifyの曲名/アーティスト、スコア）
    - CSVはエスケープ正しく（カンマ・引用符・改行）、Excelで開けるようBOM付きUTF-8
 5. 閾値 `--min-score N`（既定は3Aの `MIN_SCORE_DEFAULT`）を追加し、報告で調整比較できるようにする
+6. **リスク分析用の集計（Task 3B の実機で判明した事項への対応）**
+   - 判明事項: Spotify はアーティスト名をローマ字で返すことがある（NHK「超ときめき♡宣伝部」→ Spotify「Cho Tokimeki Sendenbu」）。
+     この場合、3Aのアーティスト配点が0になり、曲名完全一致50 + 再生時間10 = ちょうど60点（閾値ぎりぎり）でしか採用されない
+   - また「曲名が部分一致(25) + アーティスト完全一致(40) = 65点」は別曲の誤採用になりうる
+   - `matched_preview.csv` と標準出力に次の列/集計を追加する（**ロジックは変更しない。計測のみ**）:
+     - 採用理由の内訳: 曲名(exact/core/partial) × アーティスト(exact/partial/none) × 再生時間(±5秒内/外/不明) の件数表
+     - 「アーティスト点0で採用された件数」と、その一覧（NHK表記 ↔ Spotify表記）
+     - 「曲名が部分一致(partial)で採用された件数」と、その一覧
+     - 閾値 50 / 60 / 70 での matched 件数と、閾値ごとに結果が変わった曲の一覧
+   - 上記を踏まえた**採点ルールの変更案は報告に書くだけ**にする。`src/match/**` は変更しない（判断はユーザーが行い、必要なら別タスク）
 
 ## テスト（先に書く・通信はモック）
 - plan: since / limit / 未来日除外 / テーマ曲除外と `--include-theme` / 重複排除と月帰属 / 月境界（JST 0時またぎ。UTC表記だと月がずれる日時を含める）
