@@ -73,13 +73,56 @@ assertion の actual/expected の例（未実装スタブに対する失敗）:
 ℹ duration_ms 10651.3528
 ```
 
-**実機検索（node scripts/search_check.js）: 未実施。**
-Spotifyのトークンファイル（data/spotify_token.json）の refresh_token が失われているため、**トークン再認証後に親セッションが実施予定**。本レポートでは「確認済み」とは記載しない。構文チェック（node --check）は3ファイルとも通過。
+**実機検索（2026-10-09 追記・ユーザーが再認証後に実施。3曲・実行間3秒）:**
+
+トークン再認証後、`node scripts/search_check.js` を3件実行した結果。
+
+[1] 日本語曲名（超最強 / 超ときめき♡宣伝部）:
+```
+検索語: track:"超最強" artist:"超ときめき♡宣伝部"
+候補: 3件
+- 超最強 / Cho Tokimeki Sendenbu [3:20] spotify:track:0bcZS6ifbiPHNFZNX71fiK (id: 0bcZS6ifbiPHNFZNX71fiK)
+- 超最強 / Cho Tokimeki Sendenbu [3:21] spotify:track:3JhFppgZ0ed5RTm4xT5vJH (id: 3JhFppgZ0ed5RTm4xT5vJH)
+- 超最強 - instrumental / Cho Tokimeki Sendenbu [3:19] spotify:track:1ePDpVhRA1gvOSFzPoR4Yl (id: 1ePDpVhRA1gvOSFzPoR4Yl)
+```
+
+[2] 全角英数を含む曲名（Ｓｕｐｅｒｍａｒｋｅｔ / ＳＥＫＡＩ　ＮＯ　ＯＷＡＲＩ）:
+```
+検索語: track:"Supermarket" artist:"SEKAI NO OWARI"
+候補: 1件
+- Supermarket / SEKAI NO OWARI [4:32] spotify:track:3TEu6rnvOBkZqKf0vQeVmy (id: 3TEu6rnvOBkZqKf0vQeVmy)
+```
+→ NFKC 正規化（全角→半角）が実クエリで機能し、完全一致の候補が取れた。
+
+[3] 0件フォールバックの確認（超最強 / 存在しないアーティストXYZ0123）:
+```
+検索語: track:"超最強" (アーティスト付きは0件のため artist 抜きで再検索)
+候補: 9件
+- 超最強 / Cho Tokimeki Sendenbu [3:20] ... (id: 0bcZS6ifbiPHNFZNX71fiK) ほか8件
+```
+→ artist 付き検索が0件のとき、artist 抜きで自動再検索され `usedFallback` 動作を確認。
+
+**`track:"..." artist:"..."` クォート付き構文の実機確認**: 上記3件すべてで期待どおりに動作した
+（日本語・全角英数・絵文字(♡)含みでも0件や誤ヒットなく機能）。
+
+**トークン非出力の照合（実トークン値との文字列照合）:**
+```
+access_token (実値) : 実行出力3件=含まれない / Work_Report=含まれない
+refresh_token (実値): 実行出力3件=含まれない / Work_Report=含まれない
+client_id           : Work_Report=含まれない
+```
+
+**実機検索からの重要な観察（3Cへの申し送り）:**
+Spotify はアーティスト名を**ローマ字表記で返す場合がある**（例: NHK「超ときめき♡宣伝部」に対し
+Spotify は「Cho Tokimeki Sendenbu」）。一方「SEKAI NO OWARI」は表記が一致した。3A のアーティスト
+スコアリング（完全一致40/部分一致20）は正規化後の文字列比較のため、ローマ字化されたケースでは
+アーティスト点が付かない可能性がある。曲名（と再生時間）主体の採用判断になるケースが増えるため、
+3C の閾値設計・マッチ率検証で考慮すること。
 
 ## 完了条件チェック
 - [x] `node --test` 全件通過（80/80・Red/Green ログ上記貼付）
-- [ ] 実機: `node scripts/search_check.js` を3曲以内で実行 → **未実施。トークン再認証後に親が実施予定（トークン失効のため）**
-- [x] トークンが出力・Work_Reportに含まれないことを確認（実装・テスト・本レポートにトークン値なし。CLIは候補のみ表示）
+- [x] 実機: `node scripts/search_check.js` を3曲で実行（2026-10-09追記・日本語1つ/全角英数1つ/0件フォールバック1つ・実行間3秒・クォート付き構文の実機動作を確認）
+- [x] トークンが出力・Work_Reportに含まれないことを確認（実トークン値との文字列照合で確認・結果上記）
 - [x] コミット → push → PR作成 → CIグリーン確認。マージはしない
 - [x] Work_Report: `workReport/2026-10-09_task_3B_spotify_search.md`、起点: `起点：計画/Phase3-3B/採用`
 
@@ -101,10 +144,11 @@ Spotifyのトークンファイル（data/spotify_token.json）の refresh_token
 - 検索 limit は10が上限のため、3Cでマージンを見て候補を増やしたい場合は offset ページングの追加を検討（今回は要件どおり1リクエスト）
 - `searchWithFallback` の query は「最後に実行した検索語」（フォールバック時は artist 抜き）。3Cがログ出力する際はこの値を使うと原因追跡しやすい
 - PowerShell 5.1 では複数行の gh --body は here-string より `--body-file` が安全（再発防止）
+- **実機検索で判明**: Spotify のアーティスト名はローマ字表記で返ることがある（超ときめき♡宣伝部 → Cho Tokimeki Sendenbu）。NHK側の日本語表記と一致しないケースでは3Aのアーティスト配点が付かないため、3Cは曲名+再生時間中心の採用ロジックとマッチ率検証で確認すること
 
 ## 起点
 起点：計画/Phase3-3B/採用
 
 ## Claudeへの質問・相談事項
-1. 実機確認（search_check.js）はトークン再認証後、親が3曲以内（日本語曲名1つ・全角英数含む1つ等）で実施願います。リクエスト間は1秒以上あけてください。スクリプトは1回目0件時のみ artist 抜きで再検索します（最大2リクエスト/1実行）
-2. `buildQuery` はフィールド値を必ずダブルクォートで囲む設計にしました（公式例はクォートなしだが、スペース含みタイトルとフィルタ混入の双方を防げるため）。問題あれば要調整
+1. ~~実機確認~~ → **実施済み**（2026-10-09追記・上記「動作確認結果」参照）
+2. `buildQuery` はフィールド値を必ずダブルクォートで囲む設計にしました（公式例はクォートなしだが、スペース含みタイトルとフィルタ混入の双方を防げるため）。実機3件で正常動作を確認済み。問題あれば要調整
