@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   runWeekly,
   resolveRoot,
@@ -198,7 +199,7 @@ describe("ユーティリティ", () => {
       await writeFile(join(root, "package.json"), "{}", "utf8");
       await writeFile(join(root, "scripts", "weekly_sync.js"), "", "utf8");
       await writeFile(join(root, "src", "ops", "weekly.js"), "", "utf8");
-      const toUrl = (p) => "file:///" + p.replace(/\\/g, "/");
+      const toUrl = (p) => pathToFileURL(p).href;
       assert.equal(resolveRoot(toUrl(join(root, "scripts", "weekly_sync.js"))), root);
       assert.equal(resolveRoot(toUrl(join(root, "src", "ops", "weekly.js"))), root);
     } finally {
