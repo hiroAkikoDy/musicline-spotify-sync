@@ -159,8 +159,14 @@ export async function applySync({
     }
   }
 
-  // 回の処理が完了したら処理済みとして記録し、未マッチを積む
-  for (const epId of Object.keys(remainingEpisodes)) {
+  // 回の処理が完了したら処理済みとして記録し、未マッチを積む。
+  // 処理済みにするのは「plan で選択された回(曲を持つ回)」のみ。--limit の選択外や
+  // 曲を持たない回(未放送・musicList空など)は処理済みにしない(放送後に同期できるように)。
+  const selectedEpisodeIds = new Set();
+  for (const month of plan.monthOrder) {
+    for (const t of plan.months[month] ?? []) selectedEpisodeIds.add(t.episodeId);
+  }
+  for (const epId of selectedEpisodeIds) {
     const matched = results.matched.filter((m) => m.track.episodeId === epId).length;
     const unmatched = results.unmatched.filter((u) => u.track.episodeId === epId).length;
     state = markEpisode(state, epId, { matched, unmatched });

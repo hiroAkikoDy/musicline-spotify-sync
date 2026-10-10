@@ -290,6 +290,34 @@ describe("applySync", () => {
     }
   });
 
+  test("--limit 選択外の回は処理済みにしない(未処理の回は次回同期される)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
+    try {
+      const statePath = join(dir, "state.json");
+      // 5回のうち limit=2 → 選択されるのは新しい2回(e4, e5)のみ。残りは処理済みにしない
+      const cache = makeCache([
+        { id: "e1", date: "2026-08-01T21:45:00+09:00", titles: ["古い曲1"] },
+        { id: "e2", date: "2026-08-08T21:45:00+09:00", titles: ["古い曲2"] },
+        { id: "e3", date: "2026-08-15T21:45:00+09:00", titles: ["古い曲3"] },
+        { id: "e4", date: "2026-09-05T21:45:00+09:00", titles: ["新しい曲1"] },
+        { id: "e5", date: "2026-09-12T21:45:00+09:00", titles: ["新しい曲2"] },
+      ]);
+      const pl = playlistMock();
+      const r = await applySync(baseOpts(cache, {
+        state: initialState(), statePath, playlist: pl.api, yes: true,
+        opts: { limit: 2 },
+      }));
+      assert.equal(r.ok, true);
+      assert.equal(r.summary.addedTotal, 2);
+      const saved = await loadState(statePath);
+      // 処理済みは選択された2回のみ。limit選択外の e1..e3 は次回の対象のまま
+      assert.deepEqual(Object.keys(saved.episodes).sort(), ["e4", "e5"]);
+      assert.equal(Object.keys(saved.tracks).length, 2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("削除系メソッドは一切使われない(検索はGETのみ)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
     try {
