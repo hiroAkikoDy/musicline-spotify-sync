@@ -4,8 +4,10 @@
 data/token.json
 data/*token*
 data/episodes.json
+data/state.json
+data/weekly.lock
+logs/
 node_modules/
 out/
 *.log
 .kilo/
-data/state.json

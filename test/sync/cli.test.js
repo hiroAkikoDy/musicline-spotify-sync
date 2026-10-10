@@ -51,6 +51,22 @@ describe("CLI: sync サブコマンド", () => {
     }
   });
 
+  test("--max-add が不正値ならエラー終了(5Aで追加)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sync-cli-bad-maxadd-"));
+    try {
+      await assert.rejects(
+        () => runCli(["sync", "--dry-run", "--max-add", "-1"], dir),
+        (err) => {
+          assert.equal(err.code, 1);
+          assert.match(err.stderr, /--max-add/);
+          return true;
+        }
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("--since の形式が不正ならエラー終了", async () => {
     const dir = await mkdtemp(join(tmpdir(), "sync-cli-bad-since-"));
     try {

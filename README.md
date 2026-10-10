@@ -426,6 +426,36 @@ node src/index.js sync            # 全件（2回目以降は追加0件で終わ
 
 ---
 
+## 7-5. 運用（週次自動実行とワンクリック実行）
+
+### 週次の自動実行（Windows タスクスケジューラ）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register_weekly_task.ps1
+```
+
+- 毎週土曜 9:00 に `fetch` → `sync --yes --max-add 50` を実行するタスク `MusiclineSpotifySync` を登録する
+  （実行前に内容を表示して [y/N] で確認。PC が電源オフで時刻を逃した場合は起動後すぐに実行）
+- スケジュールの変更: `-Day Monday -Time 08:00` のように指定
+- 解除: `scripts\register_weekly_task.ps1 -Remove`
+- 無人実行には安全装置がある: 1回の追加が **50曲を超えそうなときは1曲も書き込まずに中止**（終了コード2）
+- 登録内容だけを見る: `-PrintPlan`
+
+### ワンクリック実行
+
+`scripts\sync_now.bat` をダブルクリック（`register_weekly_task.ps1 -DesktopShortcut` でデスクトップに
+ショートカットを作成可能）。`fetch` → `sync --dry-run`（追加予定の表示）→ `sync`（`[y/N]` 確認あり）の順に
+実行し、最後までウィンドウが開いたまま。
+
+### ログと再認証
+
+- 毎回のログ: `logs\weekly_YYYY-MM-DD_HHmmss.log`（JST・60日で自動削除）
+- 最新の結果: `logs\last_run.txt`（成功/失敗・日時・追加曲数・未マッチ数）
+- 「認証が失効しています」と出た場合: `node scripts/auth_check.js` を実行して再認証する
+- 二重起動防止: `data\weekly.lock`（同時実行を検出したらスキップ。6時間以上前の古いロックは自動で無視）
+
+---
+
 ## 8. テストと CI
 
 ```powershell
