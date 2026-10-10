@@ -15,15 +15,17 @@ function runCli(args, cwd) {
 }
 
 describe("CLI: sync サブコマンド", () => {
-  test("--dry-run なしで実行されたらエラー終了(書き込み未実装)", async () => {
+  test("--dry-run なし(書き込みモード)でも前提チェックが動く(4Cで実装)", async () => {
+    // 4Cで書き込みモードを実装したため、旧仕様の「未実装」エラーではなく
+    // 書き込みモードとして前提(episodes.json)のチェックに進むことを検証する
     const dir = await mkdtemp(join(tmpdir(), "sync-cli-no-dryrun-"));
     try {
       await assert.rejects(
         () => runCli(["sync"], dir),
         (err) => {
           assert.equal(err.code, 1);
-          assert.match(err.stderr, /未実装/);
-          assert.match(err.stderr, /--dry-run/);
+          assert.match(err.stderr, /episodes\.json/);
+          assert.doesNotMatch(err.stderr, /未実装/);
           return true;
         }
       );
