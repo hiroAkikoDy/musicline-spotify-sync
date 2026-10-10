@@ -56,3 +56,8 @@
 4. `data/state.json` の内容（曲のURIやIDを含む）の抜粋を Work_Report に載せる場合は、先頭数件のみ
 5. コミット → push → PR作成（`gh pr create --body-file`）→ CIグリーン確認。**マージはしない**
 6. Work_Report: `workReport/2026-10-xx_task_4C_sync_write.md`、「動作確認結果」に未実施を残さない（ユーザー操作待ちで止まった場合は、その旨と再開条件を明記）
+
+## 変更履歴
+| 日付 | 発見フェーズ | 変更内容 | 理由 |
+|---|---|---|---|
+| 2026-10-10 | Phase 4 (Task 4C 実機) | プレイリストの公開設定を「非公開」から「公開のまま可」に変更 | 実装は public:false を送信したが、Spotify が作成時に反映せず public:true で作成された（Work_Report「仕様変更の記録」）。古閑さんが公開で問題ないと判断 |
