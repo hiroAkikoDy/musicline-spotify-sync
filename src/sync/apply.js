@@ -36,21 +36,31 @@ export async function applySync({
 } = {}) {
   const minScore = opts?.minScore ?? MIN_SCORE_DEFAULT;
 
-  // 処理済みの回を対象から外す
+  // limit は「新しい順に N 回」(処理済みの回を含めた選択)。その後で処理済みの回を外す。
+  // (同じ --limit の再実行では処理済み分がスキップされ追加0件になる = 冪等。
+  //  曲を持たない回は選択されないため、放送後に musicList が埋まれば次回の対象になる)
   const episodes = cache && typeof cache === "object" && cache.episodes ? cache.episodes : {};
+  const selected = buildPlan({ episodes }, {
+    limit: opts?.limit,
+    since: opts?.since,
+    includeTheme: opts?.includeTheme === true,
+  });
+  const selectedIds = new Set();
+  for (const month of selected.monthOrder) {
+    for (const t of selected.months[month] ?? []) selectedIds.add(t.episodeId);
+  }
   const remainingEpisodes = {};
   let skippedEpisodes = 0;
-  for (const [id, ep] of Object.entries(episodes)) {
+  for (const id of selectedIds) {
     if (isEpisodeProcessed(state, id)) {
       skippedEpisodes++;
       continue;
     }
-    remainingEpisodes[id] = ep;
+    remainingEpisodes[id] = episodes[id];
   }
 
-  // 計画（plan）→ 追加済みの曲を除外
+  // 選択された回に対して計画を組み直す(月跨ぎ重複の排除・テーマ除外を適用)
   const plan = buildPlan({ episodes: remainingEpisodes }, {
-    limit: opts?.limit,
     since: opts?.since,
     includeTheme: opts?.includeTheme === true,
   });

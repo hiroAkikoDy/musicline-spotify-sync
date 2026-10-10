@@ -23,13 +23,13 @@ function makeCache(specs) {
   return { episodes };
 }
 
-// 検索は常に「曲名・アーティスト完全一致の1件」を返す（スコア100で採用される）
+// 検索は常に「曲名・アーティスト完全一致の1件」を返す（スコア100で採用される）。メソッドとボディも記録する
 function searchMock() {
   const calls = [];
   return {
     calls,
-    fetch: async (url) => {
-      calls.push(url);
+    fetch: async (url, opts = {}) => {
+      calls.push({ url, method: opts.method ?? "GET", body: opts.body });
       const decoded = decodeURIComponent(url);
       const title = /track:"([^"]+)"/.exec(decoded)?.[1] ?? "";
       const artist = /artist:"([^"]+)"/.exec(decoded)?.[1] ?? "";
@@ -290,11 +290,10 @@ describe("applySync", () => {
     }
   });
 
-  test("--limit 選択外の回は処理済みにしない(未処理の回は次回同期される)", async () => {
+  test("--limit は新しい順N回(処理済みを含む選択)。再実行では0件(冪等)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
     try {
       const statePath = join(dir, "state.json");
-      // 5回のうち limit=2 → 選択されるのは新しい2回(e4, e5)のみ。残りは処理済みにしない
       const cache = makeCache([
         { id: "e1", date: "2026-08-01T21:45:00+09:00", titles: ["古い曲1"] },
         { id: "e2", date: "2026-08-08T21:45:00+09:00", titles: ["古い曲2"] },
@@ -302,23 +301,48 @@ describe("applySync", () => {
         { id: "e4", date: "2026-09-05T21:45:00+09:00", titles: ["新しい曲1"] },
         { id: "e5", date: "2026-09-12T21:45:00+09:00", titles: ["新しい曲2"] },
       ]);
-      const pl = playlistMock();
-      const r = await applySync(baseOpts(cache, {
-        state: initialState(), statePath, playlist: pl.api, yes: true,
+      // run1: limit 2 → 新しい順2回(e4, e5)を処理
+      const pl1 = playlistMock();
+      const r1 = await applySync(baseOpts(cache, {
+        state: initialState(), statePath, playlist: pl1.api, yes: true,
         opts: { limit: 2 },
       }));
-      assert.equal(r.ok, true);
-      assert.equal(r.summary.addedTotal, 2);
-      const saved = await loadState(statePath);
-      // 処理済みは選択された2回のみ。limit選択外の e1..e3 は次回の対象のまま
-      assert.deepEqual(Object.keys(saved.episodes).sort(), ["e4", "e5"]);
-      assert.equal(Object.keys(saved.tracks).length, 2);
+      assert.equal(r1.ok, true);
+      assert.equal(r1.summary.addedTotal, 2);
+      const saved1 = await loadState(statePath);
+      assert.deepEqual(Object.keys(saved1.episodes).sort(), ["e4", "e5"]);
+
+      // run2: 同じ limit 2 → 選択は同じく e4, e5(処理済み) → 追加0件・検索もなし(冪等)
+      const search2 = searchMock();
+      const pl2 = playlistMock();
+      const r2 = await applySync(baseOpts(cache, {
+        state: saved1, statePath, spotifyFetch: search2.fetch, playlist: pl2.api, yes: true,
+        opts: { limit: 2 },
+      }));
+      assert.equal(r2.ok, true);
+      assert.equal(r2.summary.addedTotal, 0);
+      assert.equal(r2.summary.skipped.processedEpisodes, 2);
+      assert.equal(pl2.calls.create.length, 0);
+      assert.equal(pl2.calls.add.length, 0);
+      assert.equal(search2.calls.length, 0);
+      // limit 3 → 次の未処理1回(e3)だけ追加される
+      const search3 = searchMock();
+      const pl3 = playlistMock();
+      const r3 = await applySync(baseOpts(cache, {
+        state: saved1, statePath, spotifyFetch: search3.fetch, playlist: pl3.api, yes: true,
+        opts: { limit: 3 },
+      }));
+      assert.equal(r3.ok, true);
+      assert.equal(r3.summary.addedTotal, 1); // e3 の古い曲3のみ
+      const saved3 = await loadState(statePath);
+      assert.deepEqual(Object.keys(saved3.episodes).sort(), ["e3", "e4", "e5"]);
+      assert.equal(Object.keys(saved3.tracks).length, 3);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  test("削除系メソッドは一切使われない(検索はGETのみ)", async () => {
+  test("削除系メソッドは一切使われない(spotifyFetchは検索GETのみ)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
     try {
       const search = searchMock();
@@ -328,6 +352,7 @@ describe("applySync", () => {
         spotifyFetch: search.fetch, playlist: pl.api, yes: true,
       }));
       assert.ok(search.calls.length > 0); // 検索GETのみ
+      assert.ok(search.calls.every((c) => c.method === "GET")); // spotifyFetch に書き込みメソッドは出ない
       assert.ok(pl.calls.create.length > 0);
       assert.ok(pl.calls.add.length > 0);
     } finally {
