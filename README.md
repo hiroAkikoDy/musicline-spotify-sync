@@ -669,7 +669,7 @@ node --test        # 201 件が走ります（2026-10-11 時点。fail 0 / skip 
 | [4A: プレイリスト API](workReport/2026-10-10_task_4A_playlist_api.md) | プレイリスト API のラッパ（2026 年 2 月の変更の確認） |
 | [4B: state 管理](workReport/2026-10-10_task_4B_state_store.md) | state.json の設計（イミュータブル・壊れたファイルの保護） |
 | [4C: 書き込み](workReport/2026-10-10_task_4C_sync_write.md) | 書き込みの結合、実機での 63 曲の同期、見つかったバグの記録 |
-| [5A: 週次の自動実行](workReport/2026-10-10_task_5A_weekly_automation.md) | 週次の自動実行、ワンクリック実行、 の安全装置 |
+| [5A: 週次の自動実行](workReport/2026-10-10_task_5A_weekly_automation.md) | 週次の自動実行、ワンクリック実行、`--max-add` の安全装置 |
 | [task/](task/) | 各タスクの指示書（要件と受け入れ基準）、日々の進捗記録 |
 
 ---
