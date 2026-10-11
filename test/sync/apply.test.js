@@ -342,6 +342,66 @@ describe("applySync", () => {
     }
   });
 
+  test("max-add 超過: 書き込み系は一切呼ばれず exceeded を返す(1曲も書き込まない)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
+    try {
+      const statePath = join(dir, "state.json");
+      const pl = playlistMock();
+      const r = await applySync(baseOpts(FOUR_EPISODES_CACHE(), {
+        state: initialState(), statePath, playlist: pl.api, yes: true,
+        opts: { maxAdd: 5 }, // 追加予定6曲 > 上限5曲
+      }));
+      assert.equal(r.ok, false);
+      assert.equal(r.exceeded, true);
+      assert.equal(r.maxAdd, 5);
+      assert.equal(pl.calls.create.length, 0); // 1曲も書き込まない
+      assert.equal(pl.calls.add.length, 0);
+      await assert.rejects(() => readFile(statePath, "utf8"), /ENOENT/); // state も書かない
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("max-add 以内なら従来どおり実行する(ちょうど一致も可)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
+    try {
+      const statePath = join(dir, "state.json");
+      const pl = playlistMock();
+      const r = await applySync(baseOpts(FOUR_EPISODES_CACHE(), {
+        state: initialState(), statePath, playlist: pl.api, yes: true,
+        opts: { maxAdd: 6 }, // 追加予定6曲 = 上限6曲 (超過ではない)
+      }));
+      assert.equal(r.ok, true);
+      assert.equal(r.summary.addedTotal, 6);
+      assert.equal(pl.calls.add.length, 2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("max-add 不正値(負数・非整数)は例外", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
+    try {
+      const statePath = join(dir, "state.json");
+      const pl = playlistMock();
+      await assert.rejects(
+        () => applySync(baseOpts(FOUR_EPISODES_CACHE(), {
+          state: initialState(), statePath, playlist: pl.api, yes: true, opts: { maxAdd: -1 },
+        })),
+        /max-add/
+      );
+      await assert.rejects(
+        () => applySync(baseOpts(FOUR_EPISODES_CACHE(), {
+          state: initialState(), statePath, playlist: pl.api, yes: true, opts: { maxAdd: 1.5 },
+        })),
+        /max-add/
+      );
+      assert.equal(pl.calls.add.length, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("削除系メソッドは一切使われない(spotifyFetchは検索GETのみ)", async () => {
     const dir = await mkdtemp(join(tmpdir(), "apply-test-"));
     try {

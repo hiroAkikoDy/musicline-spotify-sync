@@ -87,6 +87,22 @@ export async function applySync({
   // 確認用の計画表示（マッチング後の実測値）
   const preview = buildPreview({ plan, matchedByMonth, state, minScore });
 
+  // 安全装置 --max-add: 追加予定が上限を超える場合は1曲も書き込まずに中止する（無人実行用）
+  if (opts?.maxAdd != null) {
+    if (!Number.isInteger(opts.maxAdd) || opts.maxAdd < 0) {
+      throw new Error(`--max-add は 0 以上の整数で指定してください: ${JSON.stringify(opts.maxAdd)}`);
+    }
+    if (preview.totalAdds > opts.maxAdd) {
+      return {
+        ok: false,
+        exceeded: true,
+        maxAdd: opts.maxAdd,
+        preview,
+        summary: null,
+      };
+    }
+  }
+
   // 書き込み直前の確認（--yes で省略）
   if (yes !== true && typeof confirm === "function") {
     const okToWrite = await confirm(preview);

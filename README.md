@@ -3,7 +3,7 @@
 NHK-FM「ミュージックライン」の選曲データを取得して、**自分の Spotify アカウントに月別プレイリストとして自動で追記する** Node.js 製の CLI ツールです（個人利用向け）。
 
 - 外部ライブラリは **ゼロ**。Node.js の標準モジュールだけで書かれています
-- 全体で 185 本のユニットテスト付き（2026-10-10 時点）。通信するコードも、テストでは実際には通信しません
+- 全体で 201 本のユニットテスト付き（2026-10-11 時点）。通信するコードも、テストでは実際には通信しません
 - **Node.js を学ぶための教材**として読めるように、各 Phase を「起承転結 × 5W1H」で書き残しています
 - **フォークして別の番組・別の用途に作り変える**ことを想定して、改変の入口も案内しています
 
@@ -526,20 +526,66 @@ node src/index.js sync             # [y/N] で確認して書き込む
 
 - 未マッチの曲は `data/state.json` と `out/unmatched.csv` に記録されます。手動で Spotify に追加するかは、あなたが決めます
 - Spotify の `refresh_token` は、約 6 ヶ月で失効します。失効したら、`data/spotify_token.json` を削除して、`node scripts/auth_check.js` を実行し、再認証してください
-- この週次の実行を自動化する作業は、Phase 5 として進めています（下記）
+- この週次の実行は、自動化できます（次の「10. Phase 5」を参照）
 
 ---
 
-## 10. Phase 5 — 週次の自動実行（進行中）
+## 10. Phase 5 — 週次の自動実行とワンクリック実行
+
+### 5W1H サマリ
 
 | 問い | 答え |
 |---|---|
-| When | 2026-10-10〜（Task 5A） |
+| When | 2026-10-10（Task 5A） |
+| Who | Kilo Code が実装し、Claude Code がレビュー。登録は開発者が承認して実行 |
 | What | 週次の自動実行（Windows のタスクスケジューラ）と、ダブルクリックで動くショートカット |
 | Why | 毎週のコマンドを、忘れずに、手間なく実行するため |
-| 安全装置 | 1 回に追加できる曲数の上限（`--max-add`）、ログの保存、二重起動の防止 |
+| Where | `src/ops/weekly.js`、`scripts/weekly_sync.js`、`scripts/sync_now.bat`、`scripts/register_weekly_task.ps1` |
+| How | `fetch` → `sync` を子プロセスで実行し、ログを残す。書き込みには安全装置（上限）を付けた |
 
-完成したら、この節に結果を追記します。計画の詳細は [task/task_5A_weekly_automation.md](task/task_5A_weekly_automation.md) にあります。
+### 起 — 自動化で心配になること
+
+人の目が届かないところで、Spotify に書き込むプログラムが動きます。そこで、「うっかり大量に書き込まない」「同じ処理が重ならない」「失敗したときに気づける」の 3 つを設計の中心にしました。
+
+### 承 — 何をどう作ったか
+
+- **安全装置 `--max-add N`**: 追加予定の曲数が N を超えるときは、**1 曲も書き込まずに**終了コード 2 で止まります。無人の実行では 50 を指定します
+- **二重起動の防止**: `data/weekly.lock`。6 時間より古いロックは、残骸として無視します
+- **ログ**: `logs/weekly_YYYY-MM-DD_HHmmss.log`（JST。60 日で自動削除）と、最新の結果の `logs/last_run.txt`
+- **失敗の案内**: Spotify の認証が失効したときは再認証の手順を、一時的なエラーのときは「次回の実行で再試行される」ことを表示します
+- **副作用の注入**: プロセスの起動、ファイル、時刻は、引数で差し替えられます。テストでは、実際のプロセスを起動しません
+
+### 転 — 作る途中で見つかった問題
+
+- テストが、Windows 前提の文字列で URL を組み立てていたため、CI（Linux）でだけ失敗しました。`pathToFileURL` を使う形に直しました。**手元（Windows）だけでテストが通っても、CI は別の環境で動く**という例です
+- PowerShell 5.1 は、BOM のない UTF-8 のスクリプトを、日本語の文字コード（ANSI）として読みます。`.ps1` は **BOM 付き**の UTF-8 で保存する必要がありました
+
+### 結 — 使い方
+
+**週次の自動実行（Windows のタスクスケジューラ）**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register_weekly_task.ps1
+```
+
+- 毎週土曜 9:00 に、`fetch` → `sync --yes --max-add 50` を実行するタスク `MusiclineSpotifySync` を登録します（実行前に内容を表示して `[y/N]` で確認。PC が電源オフで時刻を逃した場合は、起動後すぐに実行されます）
+- 曜日や時刻の変更: `-Day Monday -Time 08:00` のように指定します
+- 登録内容だけを見る: `-PrintPlan`（何も変更しません）
+- 解除: `-Remove`
+
+**ワンクリック実行**
+
+`scripts\sync_now.bat` をダブルクリックします（`register_weekly_task.ps1 -DesktopShortcut` で、デスクトップにショートカットを作れます）。`fetch` → `sync --dry-run`（追加予定の表示）→ `sync`（`[y/N]` の確認あり）の順に実行し、最後までウィンドウが開いたままになります。
+
+**ログと再認証**
+
+- 最新の結果は `logs\last_run.txt`（成功か失敗か・日時・追加曲数・未マッチ数）で確認できます
+- 「認証が失効しています」と出たときは、`node scripts/auth_check.js` を実行して再認証します
+
+- **学び**: 無人で動く処理には、「止まる条件」（上限、ロック）と「記録」（ログ、最新の結果）を、機能と同じ重さで設計します
+
+> 対応するコード: [src/ops/weekly.js](src/ops/weekly.js)、[scripts/](scripts/)
+> 記録: [5A](workReport/2026-10-10_task_5A_weekly_automation.md)・指示書 [task/task_5A_weekly_automation.md](task/task_5A_weekly_automation.md)
 
 ---
 
@@ -580,7 +626,7 @@ Phase 0〜4 のコードは、独立したモジュールに分かれている�
 ## 12. テストと CI
 
 ```powershell
-node --test        # 185 件が走ります（2026-10-10 時点。fail 0 / skip 0）
+node --test        # 201 件が走ります（2026-10-11 時点。fail 0 / skip 0）
 ```
 
 - すべて `node:test`（Node.js 組み込み）で書かれています。外部のテストライブラリは不要です
@@ -623,6 +669,7 @@ node --test        # 185 件が走ります（2026-10-10 時点。fail 0 / skip 
 | [4A: プレイリスト API](workReport/2026-10-10_task_4A_playlist_api.md) | プレイリスト API のラッパ（2026 年 2 月の変更の確認） |
 | [4B: state 管理](workReport/2026-10-10_task_4B_state_store.md) | state.json の設計（イミュータブル・壊れたファイルの保護） |
 | [4C: 書き込み](workReport/2026-10-10_task_4C_sync_write.md) | 書き込みの結合、実機での 63 曲の同期、見つかったバグの記録 |
+| [5A: 週次の自動実行](workReport/2026-10-10_task_5A_weekly_automation.md) | 週次の自動実行、ワンクリック実行、`--max-add` の安全装置 |
 | [task/](task/) | 各タスクの指示書（要件と受け入れ基準）、日々の進捗記録 |
 
 ---

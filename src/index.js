@@ -38,6 +38,7 @@ function parseSyncArgs(args) {
     else if (a === "--since") opts.since = args[++i];
     else if (a === "--limit") opts.limit = Number(args[++i]);
     else if (a === "--min-score") opts.minScore = Number(args[++i]);
+    else if (a === "--max-add") opts.maxAdd = Number(args[++i]);
     else {
       console.error(`不明なオプション: ${a}`);
       return null;
@@ -53,6 +54,10 @@ function parseSyncArgs(args) {
   }
   if (opts.minScore !== undefined && !Number.isFinite(opts.minScore)) {
     console.error(`--min-score は数値で指定してください: ${opts.minScore}`);
+    return null;
+  }
+  if (opts.maxAdd !== undefined && (!Number.isInteger(opts.maxAdd) || opts.maxAdd < 0)) {
+    console.error(`--max-add は 0 以上の整数で指定してください: ${opts.maxAdd}`);
     return null;
   }
   return opts;
@@ -111,13 +116,19 @@ async function runSync(rest) {
     state,
     statePath: "data/state.json",
     spotifyFetch,
-    opts: { limit: opts.limit, since: opts.since, includeTheme: opts.includeTheme, minScore },
+    opts: { limit: opts.limit, since: opts.since, includeTheme: opts.includeTheme, minScore, maxAdd: opts.maxAdd },
     yes: opts.yes === true,
     confirm: writeConfirm(),
     logger: console,
   });
   if (result.cancelled) {
     console.log("書き込みを中止しました。");
+    return;
+  }
+  if (result.exceeded) {
+    console.error(`追加予定 ${result.preview.totalAdds}曲 が上限 ${result.maxAdd}曲 を超えたため、1曲も書き込まずに中止しました。`);
+    console.error("手動で `node src/index.js sync --dry-run` で内容を確認するか、--max-add の値を見直してください。");
+    process.exitCode = 2;
     return;
   }
   printWriteSummary(result);
