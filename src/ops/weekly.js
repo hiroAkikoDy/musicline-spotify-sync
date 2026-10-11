@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 const STALE_LOCK_MS = 6 * 60 * 60 * 1000; // 6時間超のロックは古い扱い
 const LOG_MAX_AGE_DAYS = 60;
 const LOG_PREFIX = "weekly_";
+const UTF8_BOM = "\uFEFF"; // last_run.txt / weekly_*.log を BOM 付き UTF-8 で書く(PowerShell 5.1 の type 対応)
 
 // このファイル(script)や呼び出し元の import.meta.url からプロジェクトのルートを求める。
 // package.json が見つかるまで親を辿る（scripts/ からも src/ops/ からも動く）。
@@ -34,9 +35,11 @@ export function jstTimestamp(now = new Date()) {
   return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())}_${p(j.getUTCHours())}${p(j.getUTCMinutes())}${p(j.getUTCSeconds())}`;
 }
 
-// JST の可読日時 "YYYY-MM-DD HH:mm:ss"（last_run.txt 用）
+// JST の可読日時 "YYYY-MM-DD HH:mm:ss"（last_run.txt・ログの表示用）
 export function jstDateTime(now = new Date()) {
-  return jstTimestamp(now).replace("_", " ");
+  const j = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const p = (n) => String(n).padStart(2, "0");
+  return `${j.getUTCFullYear()}-${p(j.getUTCMonth() + 1)}-${p(j.getUTCDate())} ${p(j.getUTCHours())}:${p(j.getUTCMinutes())}:${p(j.getUTCSeconds())}`;
 }
 
 export function isLockStale(lock, now = new Date()) {
@@ -102,10 +105,11 @@ export async function cleanupOldLogs(logsDir, now = new Date(), { maxAgeDays = L
   return deleted;
 }
 
-export function buildLastRunText({ ok, finishedAtJst, added = 0, unmatched = 0, reason = null } = {}) {
+export function buildLastRunText({ ok, startedAtJst, finishedAtJst, added = 0, unmatched = 0, reason = null } = {}) {
   const lines = [
     `結果: ${ok ? "成功" : "失敗"}`,
-    `日時: ${finishedAtJst} (JST)`,
+    `開始: ${startedAtJst} (JST)`,
+    `終了: ${finishedAtJst} (JST)`,
     `追加曲数: ${added}`,
     `未マッチ数: ${unmatched}`,
   ];
@@ -120,6 +124,7 @@ const defaultSpawnImpl = (cmd, args, options) => spawnSync(cmd, args, options);
 export async function runWeekly({
   root,
   now = new Date(),
+  nowFn = null,
   pid = process.pid,
   spawnImpl = defaultSpawnImpl,
   lockPath = join(root, "data", "weekly.lock"),
@@ -128,6 +133,8 @@ export async function runWeekly({
   logger = console,
 } = {}) {
   const indexJs = join(root, "src", "index.js");
+  const startedAtJst = jstDateTime(now);
+  const finishedAtJst = () => jstDateTime(nowFn ? nowFn() : new Date());
 
   // 二重起動防止
   const lock = await acquireLock(lockPath, { now, pid });
@@ -139,7 +146,8 @@ export async function runWeekly({
   await mkdir(logsDir, { recursive: true });
   const logPath = join(logsDir, `${LOG_PREFIX}${jstTimestamp(now)}.log`);
   const logLines = [];
-  const flush = async () => writeFile(logPath, `${logLines.join("\n")}\n`, "utf8");
+  // PowerShell 5.1 の type でも日本語が読めるよう UTF-8 BOM 付きで書く
+  const flush = async () => writeFile(logPath, `${UTF8_BOM}${logLines.join("\n")}\n`, "utf8");
   const log = (line) => {
     logLines.push(line);
     logger.log?.(line);
@@ -183,9 +191,9 @@ export async function runWeekly({
     if (ok) log(`=== 完了: ${added}曲を追加・未マッチ ${unmatched}曲 ===`);
 
     // 最終結果とログの整理
-    await writeFile(join(logsDir, "last_run.txt"), buildLastRunText({
-      ok, finishedAtJst: jstDateTime(now), added, unmatched, reason,
-    }), "utf8");
+    await writeFile(join(logsDir, "last_run.txt"), `${UTF8_BOM}${buildLastRunText({
+      ok, startedAtJst, finishedAtJst: finishedAtJst(), added, unmatched, reason,
+    })}`, "utf8");
     const deletedLogs = await cleanupOldLogs(logsDir, now);
     if (deletedLogs.length > 0) log(`古いログを削除しました: ${deletedLogs.join(", ")}`);
     await flush();
