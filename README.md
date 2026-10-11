@@ -579,7 +579,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_weekly_task.ps1
 
 **ログと再認証**
 
-- 最新の結果は `logs\last_run.txt`（成功か失敗か・日時・追加曲数・未マッチ数）で確認できます。PowerShell 5.1 では、`Get-Content logs\last_run.txt -Encoding UTF8` で表示すると、日本語が文字化けしません
+- 最新の結果は `logs\last_run.txt`（成功か失敗か・日時・追加曲数・未マッチ数）で確認できます。`type logs\last_run.txt` でも読めます
 - 「認証が失効しています」と出たときは、`node scripts/auth_check.js` を実行して再認証します
 
 **実機での確認（2026-10-11）**

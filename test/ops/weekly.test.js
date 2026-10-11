@@ -8,10 +8,12 @@ import {
   runWeekly,
   resolveRoot,
   jstTimestamp,
+  jstDateTime,
   isLockStale,
   pickFailureGuidance,
   cleanupOldLogs,
   acquireLock,
+  buildLastRunText,
 } from "../../src/ops/weekly.js";
 
 const NOW = new Date("2026-10-10T09:00:00+09:00"); // JST 土曜 9:00
@@ -242,3 +244,80 @@ describe("ユーティリティ", () => {
     }
   });
 });
+
+describe("5B: jstDateTime / jstTimestamp", () => {
+  test("jstDateTime: UTC→JST・HH:mm:ss 付き", () => {
+    assert.equal(jstDateTime(new Date("2026-10-11T04:49:25Z")), "2026-10-11 13:49:25");
+  });
+  test("jstDateTime: 日付をまたぐ場合(UTC 15:30 → JST 翌日 00:30)", () => {
+    assert.equal(jstDateTime(new Date("2026-10-10T15:30:00Z")), "2026-10-11 00:30:00");
+  });
+  test("jstTimestamp は従来どおり YYYY-MM-DD_HHmmss(回帰・ファイル名用)", () => {
+    assert.equal(jstTimestamp(new Date("2026-10-11T04:49:25Z")), "2026-10-11_134925");
+  });
+});
+
+describe("5B: buildLastRunText (開始・終了の両方)", () => {
+  test("成功時: 結果・開始・終了・追加曲数・未マッチ数を書く", () => {
+    const text = buildLastRunText({
+      ok: true,
+      startedAtJst: "2026-10-11 13:49:25",
+      finishedAtJst: "2026-10-11 13:49:41",
+      added: 0,
+      unmatched: 0,
+    });
+    assert.match(text, /結果: 成功/);
+    assert.match(text, /開始: 2026-10-11 13:49:25 \(JST\)/);
+    assert.match(text, /終了: 2026-10-11 13:49:41 \(JST\)/);
+    assert.match(text, /追加曲数: 0/);
+    assert.match(text, /未マッチ数: 0/);
+    assert.doesNotMatch(text, /日時:/); // 旧形式(日時: 1行)は廃止
+  });
+  test("失敗時: 理由も書く", () => {
+    const text = buildLastRunText({
+      ok: false,
+      startedAtJst: "2026-10-11 13:49:25",
+      finishedAtJst: "2026-10-11 13:49:41",
+      added: 0,
+      unmatched: 0,
+      reason: "一時的なエラーの可能性があります",
+    });
+    assert.match(text, /結果: 失敗/);
+    assert.match(text, /理由: 一時的なエラーの可能性があります/);
+  });
+});
+
+describe("5B: last_run.txt と weekly_*.log の BOM", () => {
+  test("先頭3バイトが EF BB BF (UTF-8 BOM)", async () => {
+    const root = await makeRoot();
+    try {
+      const { spawnImpl } = spawnScript([FETCH_OK, SYNC_OK]);
+      const end = new Date("2026-10-11T04:49:41Z");
+      await runWeekly({ root, now: NOW, nowFn: () => end, spawnImpl, logger: QUIET });
+      const logsDir = join(root, "logs");
+      const files = (await readdir(logsDir)).filter((f) => f.startsWith("weekly_") && f.endsWith(".log"));
+      assert.equal(files.length, 1);
+      const logBytes = await readFile(join(logsDir, files[0]));
+      assert.deepEqual([...logBytes.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
+      const lastBytes = await readFile(join(logsDir, "last_run.txt"));
+      assert.deepEqual([...lastBytes.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("last_run.txt の内容に 開始/終了 が入り、nowFn で終了時刻を注入できる", async () => {
+    const root = await makeRoot();
+    try {
+      const { spawnImpl } = spawnScript([FETCH_OK, SYNC_OK]);
+      const end = new Date("2026-10-11T04:49:41Z");
+      await runWeekly({ root, now: NOW, nowFn: () => end, spawnImpl, logger: QUIET });
+      const last = await readFile(join(root, "logs", "last_run.txt"), "utf8");
+      assert.match(last, /開始: 2026-10-10 09:00:00 \(JST\)/); // NOW = 2026-10-10T00:00Z → JST 10-10 09:00
+      assert.match(last, /終了: 2026-10-11 13:49:41 \(JST\)/); // end = 04:49Z → JST 13:49
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
